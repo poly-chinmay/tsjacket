@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "name":     {"type": "string"},
+    "age":      {"type": "integer"},
+    "status":   {"type": "string", "enum": ["active", "inactive"]},
+    "verified": {"type": "boolean"}
+  },
+  "required": ["name", "age", "status", "verified"]
+}

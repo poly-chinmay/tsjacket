@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+dist/
+.venv
+build/
+*.egg-info/
+.DS_Store
+test_tokenizer/
+*.pt
+*.bin

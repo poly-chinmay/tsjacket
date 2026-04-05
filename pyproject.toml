@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tsjacket"
+version = "0.1.0"
+description = "Constrained LLM decoding — invalid outputs don't get corrected, they never get produced."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0.0",
+    "transformers>=4.30.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/poly-chinmay/tsjacket"
+Repository = "https://github.com/poly-chinmay/tsjacket"
