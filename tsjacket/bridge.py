@@ -54,6 +54,25 @@ def build_token_trie(schema: CompiledSchema, tokenizer) -> dict[str, set[int]]:
     return trie
 
 
+def tokens_for_values(values: list, tokenizer) -> set[int]:
+    """
+    Given a list of allowed values, return the set of valid
+    first token IDs. Used by constraint graph to override
+    trie token sets at generation time.
+    """
+    valid_ids = set()
+    for v in values:
+        # Handle bool, int, float, str
+        if isinstance(v, bool):
+            s = "true" if v else "false"
+        else:
+            s = f'"{v}"' if isinstance(v, str) else str(v)
+        ids = tokenizer.encode(s, add_special_tokens=False)
+        if ids:
+            valid_ids.add(ids[0])
+    return valid_ids
+
+
 if __name__ == "__main__":
     from tsjacket.compiler import compile_schema
     from transformers import AutoTokenizer

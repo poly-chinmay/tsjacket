@@ -2,12 +2,13 @@ import torch
 import json
 from dataclasses import dataclass
 from tsjacket.compiler import CompiledSchema, compile_schema
-from tsjacket.bridge import build_token_trie
+from tsjacket.bridge import build_token_trie, tokens_for_values
 from tsjacket.tracker import GrammarStateTracker
-from tsjacket.zones import classify_position, ZoneType
+from tsjacket.zones import classify_position, ZoneType, ZoneInfo
 from tsjacket.engine import apply_constraint, ConstraintDeadlockError
 from tsjacket.monitor import PressureMonitor
 from tsjacket.checkpoints import CheckpointManager
+from tsjacket.constraints import ConstraintGraph, ConstraintGraphState
 
 
 @dataclass
@@ -26,8 +27,9 @@ def generate_constrained(
     schema: CompiledSchema,
     trie: dict[str, set[int]],
     tokenizer,
-    max_new_tokens: int = 100,
-    max_rollbacks: int = 3
+    max_new_tokens: int = 150,
+    max_rollbacks: int = 3,
+    constraint_graph: ConstraintGraph | None = None
 ) -> GenerationResult:
 
     tracker = GrammarStateTracker(schema)
@@ -38,6 +40,7 @@ def generate_constrained(
     checkpoint_mgr = CheckpointManager()
     rollback_count = 0
     token_index = 0
+    constraint_state = constraint_graph.fresh_state() if constraint_graph else None
 
     for _ in range(max_new_tokens):
         current_state = tracker.current_state
@@ -71,6 +74,54 @@ def generate_constrained(
                 )
         else:
             zone = classify_position(classifier_state, schema, trie)
+
+            # After getting zone info, before apply_constraint:
+            if (constraint_graph and constraint_state is not None
+                    and current_state.startswith("expect_value:")):
+
+                field_name = current_state.split("expect_value:")[1]
+
+                if not constraint_graph.is_satisfiable(field_name, constraint_state):
+                    raise ConstraintDeadlockError(
+                        f"Constraint graph: {field_name} has no satisfiable values"
+                    )
+
+                schema_enum = schema.field_enums.get(field_name)
+                allowed = constraint_graph.get_allowed_values(
+                    field_name, schema_enum, constraint_state
+                )
+
+                if allowed is not None:
+                    # Override zone's valid token set with constraint-narrowed set
+                    override_ids = tokens_for_values(allowed, tokenizer)
+                    zone = ZoneInfo(
+                        zone_type=ZoneType.CONSTRAINED,
+                        valid_token_ids=override_ids,
+                        forced_token_id=None
+                    )
+
+            if (constraint_graph and constraint_state is not None
+                    and classifier_state.startswith("expect_value:")):
+
+                field_name = classifier_state.split("expect_value:")[1]
+
+                if not constraint_graph.is_satisfiable(field_name, constraint_state):
+                    raise ConstraintDeadlockError(
+                        f"Constraint graph: {field_name} has no satisfiable values"
+                    )
+
+                schema_enum = schema.field_enums.get(field_name)
+                allowed = constraint_graph.get_allowed_values(
+                    field_name, schema_enum, constraint_state
+                )
+
+                if allowed is not None:
+                    override_ids = tokens_for_values(allowed, tokenizer)
+                    zone = ZoneInfo(
+                        zone_type=ZoneType.CONSTRAINED,
+                        valid_token_ids=override_ids,
+                        forced_token_id=None
+                    )
 
             if zone.zone_type == ZoneType.STRUCTURAL:
                 next_token_id = zone.forced_token_id
@@ -159,6 +210,13 @@ def generate_constrained(
                 grammar_state=tracker.current_state,
                 committed_fields=dict(tracker.committed_fields)
             )
+
+            if constraint_graph and constraint_state is not None:
+                constraint_state = constraint_graph.commit_field(
+                    advance_result.completed_field_name,
+                    advance_result.completed_field_value,
+                    constraint_state
+                )
 
         token_index += 1
 
